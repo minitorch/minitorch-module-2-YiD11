@@ -42,7 +42,7 @@ def index_to_position(index: Index, strides: Strides) -> int:
     Returns:
         Position in storage
     """
-    return np.sum(index * strides)
+    return np.sum(index * np.array(strides))
 
 def to_index(ordinal: int, shape: Shape, out_index: OutIndex) -> None:
     """
