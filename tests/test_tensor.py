@@ -1,7 +1,7 @@
 from typing import Callable, Iterable, List, Tuple
 
 import pytest
-from hypothesis import given
+from hypothesis import given, Verbosity, settings
 from hypothesis.strategies import DataObject, data, lists, permutations
 
 from minitorch import MathTestVariable, Tensor, grad_check, tensor

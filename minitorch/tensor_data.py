@@ -42,11 +42,7 @@ def index_to_position(index: Index, strides: Strides) -> int:
     Returns:
         Position in storage
     """
-    return sum((
-        index[i] * strides[i] for i in range(len(index))
-    ))
-        
-
+    return np.sum(index * strides)
 
 def to_index(ordinal: int, shape: Shape, out_index: OutIndex) -> None:
     """
@@ -138,7 +134,6 @@ def shape_broadcast(shape1: UserShape, shape2: UserShape) -> UserShape:
         out_shape.append(i)
     
     out_shape.reverse()
-    print(out_shape)
     return tuple(out_shape)
         
 
@@ -261,8 +256,10 @@ class TensorData:
         ), f"Must give a position to each dimension. Shape: {self.shape} Order: {order}"
         return TensorData(
             storage=np.copy(self._storage),
-            shape=tuple(self.shape[i] for i in order),
-            strides=tuple(self.strides[i] for i in order),
+            shape = tuple(np.take(self.shape, order)),
+            strides = tuple(np.take(self.strides, order)),
+            # shape=tuple(self.shape[i] for i in order),
+            # strides=tuple(self.strides[i] for i in order),
         )
 
     def to_string(self) -> str:

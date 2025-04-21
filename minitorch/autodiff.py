@@ -91,13 +91,19 @@ def backpropagate(variable: Variable, deriv: Any) -> None:
     import queue
     derivs = queue.Queue()
     derivs.put(deriv)
-    for var in topological_sort(variable):
-        deriv = derivs.get()
+    inputs = queue.Queue()
+    inputs.put(variable)
+    while not inputs.empty():
+        cur_deriv: Variable = derivs.get()
+        var: Variable = inputs.get()
         if var.is_leaf():
-            var.accumulate_derivative(deriv)
+            var.accumulate_derivative(cur_deriv)
             continue
-        for input, input_deriv in var.chain_rule(deriv):
+        if not var.requires_grad():
+            continue
+        for input, input_deriv in var.chain_rule(cur_deriv):
             derivs.put(input_deriv)
+            inputs.put(input)
 
 
 @dataclass

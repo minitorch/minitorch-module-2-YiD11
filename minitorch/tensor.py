@@ -136,7 +136,7 @@ class Tensor:
 
     def _ensure_tensor(self, b: TensorLike) -> Tensor:
         "Turns a python number into a tensor with the same backend."
-        if isinstance(b, (int, float)):
+        if isinstance(b, (int, float, np.number)):
             c = Tensor.make([b], (1,), backend=self.backend)
         else:
             b._type_(self.backend)
@@ -149,6 +149,9 @@ class Tensor:
 
     def __sub__(self, b: TensorLike) -> Tensor:
         return Add.apply(self, -self._ensure_tensor(b))
+    
+    def __rsub__(self, b: TensorLike) -> Tensor:
+        return Add.apply(self._ensure_tensor(b), -self)
 
     def __mul__(self, b: TensorLike) -> Tensor:
         return Mul.apply(self, self._ensure_tensor(b))
@@ -176,10 +179,10 @@ class Tensor:
         return Neg.apply(self)
 
     def __radd__(self, b: TensorLike) -> Tensor:
-        return self + b
+        return self + self._ensure_tensor(b)
 
     def __rmul__(self, b: TensorLike) -> Tensor:
-        return self * b
+        return self * self._ensure_tensor(b)
 
     def all(self, dim: Optional[int] = None) -> Tensor:
         if dim is None:
@@ -188,7 +191,7 @@ class Tensor:
             return All.apply(self, self._ensure_tensor(dim))
 
     def is_close(self, y: Tensor) -> Tensor:
-        return IsClose.apply(self, y)
+        return IsClose.apply(self, self._ensure_tensor(y))
 
     def sigmoid(self) -> Tensor:
         return Sigmoid.apply(self)
