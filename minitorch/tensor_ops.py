@@ -5,6 +5,7 @@ import itertools
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, Type
 
 import numpy as np
+import numpy.typing as npt
 from typing_extensions import Protocol, Sequence
 
 from . import operators
@@ -231,8 +232,20 @@ class SimpleOps(TensorOps):
 
 # Implementations.
 
-def _shape_size_diff(out_shape: Shape, in_shape: Shape) -> int:
+def shape_size_diff(out_shape: Shape, in_shape: Shape) -> int:
     return abs(len(out_shape) - len(in_shape))
+
+def index_permutation_pair(index1: npt.NDArray[np.int32], index2: npt.NDArray[np.int32]) -> npt.NDArray[np.int32]:
+    """
+    Return:
+        Permutation of input
+    """
+    n1, n2 = index1.shape[0], index2.shape[0]
+    n = n1 * n2
+    ret = np.zeros((n,), dtype=np.int32)
+    ret_index_permut = np.arange(n)
+    ret[ret_index_permut] = index1[ret_index_permut // n2 % n1] + index2[ret_index_permut % n2]
+    return ret
 
 def index_permutation(shape: Sequence, strides: Sequence) -> Sequence[Sequence[int]]:
     """
@@ -296,47 +309,66 @@ def index_broadcast(
             this function computes the indices required to broadcast the input tensor
             to match the output tensor.
     """
-    shape_size_diff = _shape_size_diff(out_shape, in_shape)
-    in_shape_extend = np.concatenate([[1] * shape_size_diff, in_shape], axis=0) if shape_size_diff > 0 else in_shape
-    in_strides_extend = np.concatenate([[in_strides[0]] * shape_size_diff, in_strides], axis=0) if shape_size_diff > 0 else in_strides
+    diff_num = shape_size_diff(out_shape, in_shape)
+    in_shape_extend = np.ones((diff_num + len(in_shape)), dtype=np.int32)
+    in_shape_extend[diff_num:] = in_shape
+    in_strides_extend = np.zeros((diff_num + len(in_shape)), dtype=np.int32)
+    in_strides_extend[diff_num:] = in_strides    
 
     diff_indices = np.where(in_shape_extend != out_shape)[0]
     same_indices = np.where(in_shape_extend == out_shape)[0]
-    split_index = len(diff_indices)
-    assert np.all(in_shape_extend[diff_indices] == 1), f"input shape: {in_shape_extend} cannot broadcast to output shape: {out_shape}"
     
-    in_shape_extend = np.concatenate([in_shape_extend[diff_indices], in_shape_extend[same_indices]], axis=0)
-    in_strides_extend = np.concatenate([in_strides_extend[diff_indices], in_strides_extend[same_indices]], axis=0)
-    
-    out_shape = np.concatenate([out_shape[diff_indices], out_shape[same_indices]], axis=0)
-    out_strides = np.concatenate([out_strides[diff_indices], out_strides[same_indices]], axis=0)
-    
-    in_right_indices = index_permutation(in_shape_extend[split_index:], in_strides_extend[split_index:])
-    out_right_indices = index_permutation(out_shape[split_index:], out_strides[split_index:])
+    diff_indices_size = len(diff_indices)
+    same_indices_size = len(same_indices)
+    in_shape_reorder = np.empty_like(in_shape_extend, dtype=np.int32)
+    for i in range(diff_indices_size):
+        in_shape_reorder[i] = in_shape_extend[diff_indices[i]]
+    for i in range(len(same_indices)):
+        in_shape_reorder[diff_indices_size + i] = in_shape_extend[same_indices[i]]
 
-    if split_index > 0:
-        in_left_indices = index_permutation(in_shape_extend[:split_index], in_strides_extend[:split_index])
-        out_left_indices = index_permutation(out_shape[:split_index], out_strides[:split_index])
-        in_indices = np.sum(
-            np.array(list(
-                itertools.product(in_left_indices, in_right_indices),
-            )),
-            axis=-1,
-        )
-        out_indices = np.sum(
-            np.array(list(
-                itertools.product(out_left_indices, out_right_indices),
-            )),
-            axis=-1,
-        )
-    else:
+    in_strides_reorder = np.empty_like(in_strides_extend, dtype=np.int32)
+    for i in range(diff_indices_size):
+        in_strides_reorder[i] = in_strides_extend[diff_indices[i]]
+    for i in range(len(same_indices)):
+        in_strides_reorder[diff_indices_size + i] = in_strides_extend[same_indices[i]]
+    
+    out_shape_reorder = np.empty_like(out_shape, dtype=np.int32)
+    for i in range(diff_indices_size):
+        out_shape_reorder[i] = out_shape[diff_indices[i]]
+    for i in range(len(same_indices)):
+        out_shape_reorder[diff_indices_size + i] = out_shape[same_indices[i]]
+
+    out_strides_reorder = np.empty_like(out_strides, dtype=np.int32)
+    for i in range(len(diff_indices)):
+        out_strides_reorder[i] = out_strides[diff_indices[i]]
+    for i in range(len(same_indices)):
+        out_strides_reorder[len(diff_indices) + i] = out_strides[same_indices[i]]
+
+    if same_indices_size == 0:
+        in_left_indices = index_permutation(in_shape_reorder[:diff_indices_size], in_strides_reorder[:diff_indices_size])
+        out_left_indices = index_permutation(out_shape_reorder[:diff_indices_size], out_strides_reorder[:diff_indices_size])
+        in_indices = in_left_indices
+        out_indices = out_left_indices
+    elif diff_indices_size == 0:
+        in_right_indices = index_permutation(in_shape_reorder[diff_indices_size:], in_strides_reorder[diff_indices_size:])
+        out_right_indices = index_permutation(out_shape_reorder[diff_indices_size:], out_strides_reorder[diff_indices_size:])
         in_indices = in_right_indices
         out_indices = out_right_indices
-    k = len(out_indices) // len(in_indices)
-    if k > 1:
-        in_indices = np.tile(in_indices, k)
+    else:
+        in_left_indices = index_permutation(in_shape_reorder[:diff_indices_size], in_strides_reorder[:diff_indices_size])
+        in_right_indices = index_permutation(in_shape_reorder[diff_indices_size:], in_strides_reorder[diff_indices_size:])
+        
+        out_left_indices = index_permutation(out_shape_reorder[:diff_indices_size], out_strides_reorder[:diff_indices_size])
+        out_right_indices = index_permutation(out_shape_reorder[diff_indices_size:], out_strides_reorder[diff_indices_size:])
 
-    return out_indices, in_indices
+        in_indices = index_permutation_pair(in_left_indices, in_right_indices)
+        out_indices = index_permutation_pair(out_left_indices, out_right_indices)
+
+    in_aligned_indices = np.zeros((out_indices.shape[0],), dtype=np.int32)
+    for i in range(out_indices.shape[0] // in_indices.shape[0]):
+        in_aligned_indices[i * len(in_indices) : (i + 1) * len(in_indices)] = in_indices
+    return out_indices, in_aligned_indices
+
 
 def tensor_map(fn: Callable[[float], float]) -> Any:
     """
@@ -427,7 +459,7 @@ def tensor_map(fn: Callable[[float], float]) -> Any:
         in_shape: Shape,
         in_strides: Strides,
     ):
-        diff = _shape_size_diff(out_shape, in_shape)
+        diff = shape_size_diff(out_shape, in_shape)
         if dep == max_dep:
             out_pos = index_to_position(out_index, out_strides)
             in_pos = index_to_position(in_index, in_strides)
@@ -564,7 +596,7 @@ def tensor_zip(fn: Callable[[float, float], float]) -> Any:
         b_shape: Shape,
         b_strides: Strides,
     ):
-        diff = _shape_size_diff(out_shape, a_shape)
+        diff = shape_size_diff(out_shape, a_shape)
         if dep == max_dep:
             out_pos = index_to_position(out_index, out_strides)
             a_pos = index_to_position(a_index, a_strides)
