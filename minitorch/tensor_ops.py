@@ -252,14 +252,15 @@ def index_permutation(shape: Sequence, strides: Sequence) -> Sequence[Sequence[i
         permutations of indices for the shape (e.g., (0, 0), (0, 1), ..., (1, 2)) and compute 
         their linear indices based on the strides.
     """
-    import itertools
-    return np.sum(
-        np.array(
-            list(itertools.product(*[np.arange(i) for i in shape])),
-            dtype=np.int32,
-        ) * strides,
-        axis=-1,
-    )
+    permut_size = np.prod(shape)
+    dim_size = len(shape)
+    shape_cumprod = np.cumprod(shape)
+    indices = np.arange(permut_size)
+    ret = np.zeros((permut_size,), dtype=np.int32)
+    for i in range(dim_size):
+        real_stride = shape_cumprod[-1] // shape_cumprod[i]
+        ret[indices] += (indices // real_stride) % shape[i] * strides[i]
+    return ret
 
 def index_broadcast(
         out_shape: Shape,
